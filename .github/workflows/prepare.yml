@@ -76,6 +76,11 @@ on:
         required: false
         type: string
         default: ""
+      stable_commit:
+        description: "Optional immutable Linux stable commit to merge after GKI sync (empty = no upgrade)"
+        required: false
+        type: string
+        default: ""
       variant:
         description: "Artifact variant label"
         required: false
@@ -325,6 +330,7 @@ jobs:
       kernel_version: ${{ matrix.kernel_version }}
       sublevel: ${{ matrix.sublevel }}
       os_patch_level: ${{ matrix.os_patch_level }}
+      stable_commit: ${{ inputs.stable_commit }}
       variant: ${{ matrix.variant }}
       feature_set: ${{ inputs.feature_set }}
       ksu_branch: ${{ inputs.ksu_branch }}

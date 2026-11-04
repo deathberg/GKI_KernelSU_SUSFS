@@ -21,6 +21,11 @@ on:
       os_patch_level:
         required: true
         type: string
+      stable_commit:
+        description: "Optional immutable Linux stable commit to merge after GKI sync (empty = no upgrade)"
+        required: false
+        type: string
+        default: ""
       variant:
         required: false
         type: string

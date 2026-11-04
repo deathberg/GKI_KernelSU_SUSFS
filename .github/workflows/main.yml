@@ -38,6 +38,11 @@ on:
         required: true
         type: string
         default: All
+      stable_commit:
+        description: "Optional immutable Linux stable commit to merge after GKI sync (empty = no upgrade)"
+        required: false
+        type: string
+        default: ""
       page_size:
         description: "ARM64 page size. 16k requires explicitly selecting Kernel Version 6.1.x-android14, 6.6.x-android15 or 6.12.x-android16 (All is rejected)"
         type: choice
@@ -797,6 +802,7 @@ jobs:
       brand_name: ${{ inputs.brand_name || 'Wild' }}
       keep_kmi: ${{ inputs.keep_kmi || false }}
       os_patch_level: ${{ inputs.os_patch_level || 'All' }}
+      stable_commit: ${{ inputs.stable_commit }}
       allow_version_mismatch: ${{ inputs.allow_version_mismatch || false }}
       page_size: ${{ inputs.page_size || '4k' }}
     secrets: inherit

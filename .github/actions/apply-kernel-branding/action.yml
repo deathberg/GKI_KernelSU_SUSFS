@@ -24,6 +24,10 @@ inputs:
     description: 'Keep stock KMI generation suffix (e.g., -8) and append brand after it. Off = legacy hardcoded replace.'
     required: false
     default: 'false'
+  localversion_suffix:
+    description: 'Optional exact localversion suffix (empty = existing branding behavior)'
+    required: false
+    default: ''
 
 runs:
   using: "composite"

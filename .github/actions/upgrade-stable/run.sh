@@ -23,8 +23,12 @@ PROVENANCE_DIR="${PROVENANCE_DIR:-$GITHUB_WORKSPACE/kernel/stable-provenance}"
 BASE_COMMIT="$(git -C "$KERNEL_DIR" rev-parse HEAD)"
 if [ -n "$BASE_REPOSITORY" ]; then
   BASE_REPO="$BASE_REPOSITORY"
+elif BASE_REPO="$(git -C "$KERNEL_DIR" remote get-url aosp 2>/dev/null)"; then
+  :
+elif BASE_REPO="$(git -C "$KERNEL_DIR" remote get-url origin 2>/dev/null)"; then
+  :
 else
-  BASE_REPO="$(git -C "$KERNEL_DIR" remote get-url origin)"
+  BASE_REPO="https://android.googlesource.com/kernel/common"
 fi
 
 git -C "$KERNEL_DIR" config user.name 'github-actions[bot]'

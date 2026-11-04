@@ -92,7 +92,7 @@ class StableUpgradeTests(unittest.TestCase):
         self.git("add", "Makefile", cwd=path)
         self.git("commit", "-qm", f"gki {sublevel}", cwd=path)
 
-    def run_upgrade(self, commit):
+    def run_upgrade(self, commit, base_repository=None):
         env = os.environ.copy()
         env.update({
             "GITHUB_WORKSPACE": str(self.root),
@@ -100,7 +100,7 @@ class StableUpgradeTests(unittest.TestCase):
             "GITHUB_OUTPUT": str(self.root / "github-output"),
             "STABLE_COMMIT": commit,
             "STABLE_REPOSITORY": str(self.stable_repo),
-            "BASE_REPOSITORY": str(self.base_repo),
+            "BASE_REPOSITORY": str(self.base_repo) if base_repository is None else base_repository,
             "REQUIRED_SUBLEVEL": "188",
         })
         script = ROOT / ".github/actions/upgrade-stable/run.sh"
@@ -125,6 +125,12 @@ class StableUpgradeTests(unittest.TestCase):
         build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
         self.assertLess(build.index("actions/download-kernel"), build.index("actions/upgrade-stable"))
         self.assertLess(build.index("actions/upgrade-stable"), build.index("actions/stock-config"))
+
+    def test_repo_aosp_remote(self):
+        self.git("remote", "rename", "origin", "aosp", cwd=self.clone)
+        result = self.run_upgrade(self.stable_sha, base_repository="")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("SUBLEVEL = 188", (self.clone / "Makefile").read_text())
 
     def test_empty_stable_commit_is_noop(self):
         result = self.run_upgrade("")

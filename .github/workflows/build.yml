@@ -171,6 +171,7 @@ jobs:
           android_version: ${{ inputs.android_version }}
           kernel_version: ${{ inputs.kernel_version }}
           os_patch_level: ${{ inputs.os_patch_level }}
+          base_commit: ${{ inputs.stable_commit == '' && 'edaaac4d5c85cb9fb220767a9e5f859cb730fb27' || '' }}
 
       - name: Record GKI baseline provenance
         if: inputs.stable_commit == ''
@@ -179,13 +180,18 @@ jobs:
           BASE_REF: ${{ inputs.version }}-${{ inputs.os_patch_level }}
         run: |
           set -euo pipefail
-          EXPECTED_BASE_COMMIT="fcab623b3d2b0107e56b44e4e791f9a1cc5ad0ff"
+          EXPECTED_BASE_COMMIT="edaaac4d5c85cb9fb220767a9e5f859cb730fb27"
+          EXPECTED_SUBLEVEL=145
+          if [ -n "${{ inputs.stable_commit }}" ]; then
+            EXPECTED_BASE_COMMIT="fcab623b3d2b0107e56b44e4e791f9a1cc5ad0ff"
+            EXPECTED_SUBLEVEL=188
+          fi
           BASE_COMMIT="$(git -C kernel/common rev-parse HEAD)"
           if [ "$BASE_COMMIT" != "$EXPECTED_BASE_COMMIT" ]; then
             echo "ERROR: supported Pixel 7 baseline must be $EXPECTED_BASE_COMMIT, got $BASE_COMMIT" >&2
             exit 1
           fi
-          grep -Eq '^[[:space:]]*SUBLEVEL[[:space:]]*=[[:space:]]*182([[:space:]]|$)' kernel/common/Makefile
+          grep -Eq "^[[:space:]]*SUBLEVEL[[:space:]]*=[[:space:]]*${EXPECTED_SUBLEVEL}([[:space:]]|$)" kernel/common/Makefile
           mkdir -p kernel/stable-provenance
           : > kernel/stable-provenance/stable-upgrade.patch
           {
@@ -195,7 +201,7 @@ jobs:
             printf '  "merged_head": "%s",\n' "$BASE_COMMIT"
             printf '  "stable_repository": "",\n'
             printf '  "base_ref": "%s",\n' "$BASE_REF"
-            printf '  "required_sublevel": "182",\n'
+            printf '  "required_sublevel": "%s",\n' "$EXPECTED_SUBLEVEL"
             printf '  "source_mode": "baseline"\n'
             printf '}\n'
           } > kernel/stable-provenance/manifest.json
@@ -205,7 +211,7 @@ jobs:
         with:
           stable_commit: ${{ inputs.stable_commit }}
           base_ref: ${{ inputs.version }}-${{ inputs.os_patch_level }}
-          required_sublevel: ${{ inputs.stable_commit == '' && '182' || '188' }}
+          required_sublevel: ${{ inputs.stable_commit == '' && '145' || '188' }}
 
       - name: Spoof /proc/config.gz With Stock Config
         if: false
@@ -560,8 +566,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED_SUBLEVEL=182
-          EXPECTED_RELEASE="6.1.182-Budapest"
+          EXPECTED_SUBLEVEL=145
+          EXPECTED_RELEASE="6.1.145-Budapest"
           if [ -n "${{ inputs.stable_commit }}" ]; then
             EXPECTED_SUBLEVEL=188
             EXPECTED_RELEASE="6.1.188-Budapest"

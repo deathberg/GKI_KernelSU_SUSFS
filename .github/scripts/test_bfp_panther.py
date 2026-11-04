@@ -48,6 +48,18 @@ class StableInputTests(unittest.TestCase):
         build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
         self.assertIn("base_ref: ${{ inputs.version }}-${{ inputs.os_patch_level }}", build)
 
+    def test_exact_base_commit_pin(self):
+        inputs = action("download-kernel")["inputs"]
+        self.assertIn("base_commit", inputs)
+        self.assertEqual("", inputs["base_commit"]["default"])
+        self.assertFalse(inputs["base_commit"]["required"])
+        text = (ROOT / ".github/actions/download-kernel/action.yml").read_text(encoding="utf-8")
+        self.assertIn(r'revision=\"${{ inputs.base_commit }}\"', text)
+        self.assertIn('EXPECTED_BASE_COMMIT="${{ inputs.base_commit }}"', text)
+        self.assertIn('ACTUAL_BASE_COMMIT=$(git -C common rev-parse HEAD)', text)
+        build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        self.assertIn("${{ inputs.stable_commit == '' && 'edaaac4d5c85cb9fb220767a9e5f859cb730fb27' || '' }}", build)
+
     def test_localversion_suffix_input(self):
         inputs = action("apply-kernel-branding")["inputs"]
         self.assertIn("localversion_suffix", inputs)
@@ -58,13 +70,46 @@ class StableInputTests(unittest.TestCase):
         dispatch = {
             "root_flavor": "KernelSU-Next",
             "kernel_build_version": "6.1.x-android14",
-            "os_patch_level": "lts",
+            "os_patch_level": "2026-06",
             "stable_commit": "",
         }
         self.assertNotEqual(dispatch["root_flavor"].lower(), "all")
         config = json.loads((ROOT / ".github/config/android14-6.1.json").read_text(encoding="utf-8"))
         selected = [row for row in config["include"] if row.get("disabled") is not True and row["date"] == dispatch["os_patch_level"]]
         self.assertEqual(1, len(selected))
+        self.assertEqual("172", selected[0]["sublevel"])
+
+    def test_extract_sublevel_uses_actual_source(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            makefile = root / "kernel/common/Makefile"
+            makefile.parent.mkdir(parents=True)
+            makefile.write_text("VERSION = 6\nPATCHLEVEL = 1\nSUBLEVEL = 145\n", encoding="utf-8")
+            env_file = root / "github-env"
+            output_file = root / "github-output"
+            env_file.touch()
+            output_file.touch()
+            text = action("extract-sublevel-file-name")["runs"]["steps"][0]["run"]
+            replacements = {
+                "${{ inputs.sublevel }}": "172",
+                "${{ github.workspace }}": str(root),
+                "${{ inputs.kernel_version }}": "6.1",
+                "${{ inputs.android_version }}": "android14",
+                "${{ inputs.os_patch_level }}": "2026-06",
+                "${{ inputs.variant }}": "KernelSU-Next",
+                "${{ inputs.page_size }}": "4k",
+            }
+            for token, value in replacements.items():
+                text = text.replace(token, value)
+            env = os.environ.copy()
+            env.update({"GITHUB_ENV": str(env_file), "GITHUB_OUTPUT": str(output_file),
+                        "INPUT_OS_PATCH_LEVEL": "2026-06"})
+            result = subprocess.run(["bash", "-c", text], cwd=root, env=env,
+                                    capture_output=True, text=True)
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            self.assertIn("SUBLEVEL=145", env_file.read_text())
+            self.assertIn("sublevel=145", output_file.read_text())
+            self.assertIn("file_name=6.1.145-android14-2026-06-KernelSU-Next", output_file.read_text())
 
 
 class StableUpgradeTests(unittest.TestCase):
@@ -257,7 +302,7 @@ class EvidenceTests(unittest.TestCase):
             self.assertIn(required, text)
         self.assertIn("require_verified_config", text)
         build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
-        self.assertIn("6.1.182-Budapest", build)
+        self.assertIn("6.1.145-Budapest", build)
         self.assertIn("strings", build)
         document = workflow("build.yml")
         step = next(step for step in document["jobs"]["build-gki"]["steps"]
@@ -275,7 +320,7 @@ class EvidenceTests(unittest.TestCase):
         baseline = next(step for step in steps if step.get("name") == "Record GKI baseline provenance")
         self.assertEqual("inputs.stable_commit == ''", baseline["if"])
         text = baseline["run"]
-        for expected in ("fcab623b3d2b0107e56b44e4e791f9a1cc5ad0ff",
+        for expected in ("edaaac4d5c85cb9fb220767a9e5f859cb730fb27",
                          "BASE_REF", "source_mode", "baseline",
                          "stable-upgrade.patch"):
             self.assertIn(expected, text)
@@ -283,12 +328,12 @@ class EvidenceTests(unittest.TestCase):
         self.assertLess(steps.index(baseline), steps.index(next(
             step for step in steps if step.get("uses") == "./.github/actions/upgrade-stable")))
         verify = next(step for step in steps if step.get("name") == "Verify image and collect BFP provenance")["run"]
-        self.assertIn('EXPECTED_RELEASE="6.1.182-Budapest"', verify)
-        self.assertIn("EXPECTED_SUBLEVEL=182", verify)
+        self.assertIn('EXPECTED_RELEASE="6.1.145-Budapest"', verify)
+        self.assertIn("EXPECTED_SUBLEVEL=145", verify)
         self.assertIn('if [ -n "${{ inputs.stable_commit }}" ]', verify)
         self.assertIn("test -f kernel/stable-provenance/stable-upgrade.patch", verify)
         upgrade = next(step for step in steps if step.get("uses") == "./.github/actions/upgrade-stable")
-        self.assertIn("${{ inputs.stable_commit == '' && '182' || '188' }}", upgrade["with"]["required_sublevel"])
+        self.assertIn("${{ inputs.stable_commit == '' && '145' || '188' }}", upgrade["with"]["required_sublevel"])
 
     def test_provenance_artifacts_and_validation(self):
         build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")

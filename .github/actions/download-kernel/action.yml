@@ -14,6 +14,10 @@ inputs:
   os_patch_level:
     description: 'OS patch level (e.g. 2024-01)'
     required: true
+  base_commit:
+    description: 'Optional immutable commit for the common project (empty = branch tip)'
+    required: false
+    default: ''
 
 outputs:
   deprecated_branch:
@@ -38,6 +42,11 @@ runs:
         ANDROID_PART=$(echo "$VERSION" | cut -d- -f1)
         KERNEL_PART=$(echo "$VERSION" | cut -d- -f2)
         FORMATTED_BRANCH="${ANDROID_PART}-${KERNEL_PART}-${{ inputs.os_patch_level }}"
+        EXPECTED_BASE_COMMIT="${{ inputs.base_commit }}"
+        if [ -n "$EXPECTED_BASE_COMMIT" ] && ! [[ "$EXPECTED_BASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "ERROR: base_commit must be a full 40-character commit SHA." >&2
+          exit 2
+        fi
 
         init_repo() {
           local depth="$1"
@@ -71,6 +80,9 @@ runs:
             else
               echo "WARNING: no head or tag found for ${FORMATTED_BRANCH}; sync will likely fail." >&2
             fi
+          fi
+          if [ -n "${{ inputs.base_commit }}" ]; then
+            sed -i "/path=\"common\"/ s|revision=\"[^\"]*\"|revision=\"${{ inputs.base_commit }}\"|" "$DEFAULT_MANIFEST_PATH"
           fi
           echo "tag_fallback=$TAG_FALLBACK" >> $GITHUB_OUTPUT
         }
@@ -147,6 +159,13 @@ runs:
             echo "[*] repo sync: ${PROJECT_COUNT:-?} project(s), -j${REPO_SYNC_JOBS}, --jobs-checkout=${REPO_CHECKOUT_JOBS}"
             SYNC_START=$(date +%s)
             if timeout $SYNC_TIMEOUT repo sync -c --current-branch --no-clone-bundle $SYNC_TAG_FLAGS --jobs-checkout="${REPO_CHECKOUT_JOBS}" -j"${REPO_SYNC_JOBS}"; then
+              if [ -n "$EXPECTED_BASE_COMMIT" ]; then
+                ACTUAL_BASE_COMMIT=$(git -C common rev-parse HEAD)
+                if [ "$ACTUAL_BASE_COMMIT" != "$EXPECTED_BASE_COMMIT" ]; then
+                  echo "ERROR: common HEAD $ACTUAL_BASE_COMMIT does not match pinned $EXPECTED_BASE_COMMIT." >&2
+                  exit 1
+                fi
+              fi
               echo "Kernel repository initialization and sync succeeded on attempt $attempt in $(( $(date +%s) - SYNC_START ))s."
               break
             else

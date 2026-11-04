@@ -38,11 +38,7 @@ runs:
 
         SUBLEVEL="${{ inputs.sublevel }}"
         MAKEFILE="${{ github.workspace }}/kernel/common/Makefile"
-        if [ "$(printf '%s' "$INPUT_OS_PATCH_LEVEL" | tr '[:upper:]' '[:lower:]')" = "lts" ]; then
-          if [ ! -f "$MAKEFILE" ]; then
-            echo "LTS build requires $MAKEFILE" >&2
-            exit 1
-          fi
+        if [ -f "$MAKEFILE" ]; then
           mapfile -t matches < <(grep -E '^[[:space:]]*SUBLEVEL[[:space:]]*=' "$MAKEFILE" || true)
           if [ "${#matches[@]}" -ne 1 ]; then
             echo "Expected exactly one SUBLEVEL assignment in $MAKEFILE; found ${#matches[@]}" >&2
@@ -55,6 +51,9 @@ runs:
             exit 1
           fi
           SUBLEVEL="$EXTRACTED"
+        elif [ "$(printf '%s' "$INPUT_OS_PATCH_LEVEL" | tr '[:upper:]' '[:lower:]')" = "lts" ]; then
+          echo "LTS build requires $MAKEFILE" >&2
+          exit 1
         fi
 
         FILE_NAME="${{ inputs.kernel_version }}.${SUBLEVEL}-${{ inputs.android_version }}-${{ inputs.os_patch_level }}"

@@ -59,7 +59,7 @@ class StableInputTests(unittest.TestCase):
             "root_flavor": "KernelSU-Next",
             "kernel_build_version": "6.1.x-android14",
             "os_patch_level": "lts",
-            "stable_commit": "1a8763b93150b2c8f3992c27a5ce7857fee4ab0f",
+            "stable_commit": "",
         }
         self.assertNotEqual(dispatch["root_flavor"].lower(), "all")
         config = json.loads((ROOT / ".github/config/android14-6.1.json").read_text(encoding="utf-8"))
@@ -258,8 +258,29 @@ class EvidenceTests(unittest.TestCase):
         self.assertIn("require_verified_config", text)
         build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
         self.assertIn("require_verified_config: true", build)
-        self.assertIn("6.1.188-Budapest", build)
+        self.assertIn("6.1.182-Budapest", build)
         self.assertIn("strings", build)
+
+    def test_supported_gki_baseline_provenance(self):
+        document = workflow("build.yml")
+        steps = document["jobs"]["build-gki"]["steps"]
+        baseline = next(step for step in steps if step.get("name") == "Record GKI baseline provenance")
+        self.assertEqual("inputs.stable_commit == ''", baseline["if"])
+        text = baseline["run"]
+        for expected in ("fcab623b3d2b0107e56b44e4e791f9a1cc5ad0ff",
+                         "BASE_REF", "source_mode", "baseline",
+                         "stable-upgrade.patch"):
+            self.assertIn(expected, text)
+        self.assertIn(": > kernel/stable-provenance/stable-upgrade.patch", text)
+        self.assertLess(steps.index(baseline), steps.index(next(
+            step for step in steps if step.get("uses") == "./.github/actions/upgrade-stable")))
+        verify = next(step for step in steps if step.get("name") == "Verify image and collect BFP provenance")["run"]
+        self.assertIn('EXPECTED_RELEASE="6.1.182-Budapest"', verify)
+        self.assertIn("EXPECTED_SUBLEVEL=182", verify)
+        self.assertIn('if [ -n "${{ inputs.stable_commit }}" ]', verify)
+        self.assertIn("test -f kernel/stable-provenance/stable-upgrade.patch", verify)
+        upgrade = next(step for step in steps if step.get("uses") == "./.github/actions/upgrade-stable")
+        self.assertIn("${{ inputs.stable_commit == '' && '182' || '188' }}", upgrade["with"]["required_sublevel"])
 
     def test_provenance_artifacts_and_validation(self):
         build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")

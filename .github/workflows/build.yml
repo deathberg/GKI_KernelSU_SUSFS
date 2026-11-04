@@ -172,12 +172,40 @@ jobs:
           kernel_version: ${{ inputs.kernel_version }}
           os_patch_level: ${{ inputs.os_patch_level }}
 
+      - name: Record GKI baseline provenance
+        if: inputs.stable_commit == ''
+        shell: bash
+        env:
+          BASE_REF: ${{ inputs.version }}-${{ inputs.os_patch_level }}
+        run: |
+          set -euo pipefail
+          EXPECTED_BASE_COMMIT="fcab623b3d2b0107e56b44e4e791f9a1cc5ad0ff"
+          BASE_COMMIT="$(git -C kernel/common rev-parse HEAD)"
+          if [ "$BASE_COMMIT" != "$EXPECTED_BASE_COMMIT" ]; then
+            echo "ERROR: supported Pixel 7 baseline must be $EXPECTED_BASE_COMMIT, got $BASE_COMMIT" >&2
+            exit 1
+          fi
+          grep -Eq '^[[:space:]]*SUBLEVEL[[:space:]]*=[[:space:]]*182([[:space:]]|$)' kernel/common/Makefile
+          mkdir -p kernel/stable-provenance
+          : > kernel/stable-provenance/stable-upgrade.patch
+          {
+            printf '{\n'
+            printf '  "gki_base_commit": "%s",\n' "$BASE_COMMIT"
+            printf '  "stable_commit": "",\n'
+            printf '  "merged_head": "%s",\n' "$BASE_COMMIT"
+            printf '  "stable_repository": "",\n'
+            printf '  "base_ref": "%s",\n' "$BASE_REF"
+            printf '  "required_sublevel": "182",\n'
+            printf '  "source_mode": "baseline"\n'
+            printf '}\n'
+          } > kernel/stable-provenance/manifest.json
+
       - name: Upgrade GKI to immutable stable commit
         uses: ./.github/actions/upgrade-stable
         with:
           stable_commit: ${{ inputs.stable_commit }}
           base_ref: ${{ inputs.version }}-${{ inputs.os_patch_level }}
-          required_sublevel: 188
+          required_sublevel: ${{ inputs.stable_commit == '' && '182' || '188' }}
 
       - name: Spoof /proc/config.gz With Stock Config
         if: false
@@ -532,16 +560,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          EXPECTED_SUBLEVEL=182
+          EXPECTED_RELEASE="6.1.182-Budapest"
+          if [ -n "${{ inputs.stable_commit }}" ]; then
+            EXPECTED_SUBLEVEL=188
+            EXPECTED_RELEASE="6.1.188-Budapest"
+          fi
           IMAGE="${GITHUB_WORKSPACE}/AnyKernel3/Image"
           if [ ! -s "$IMAGE" ]; then
             echo "ERROR: built Image is missing or empty: $IMAGE" >&2
             exit 1
           fi
-          if ! strings "$IMAGE" | grep -F '6.1.188-Budapest'; then
-            echo "ERROR: exact kernel version 6.1.188-Budapest is absent from $IMAGE" >&2
+          if ! strings "$IMAGE" | grep -F "$EXPECTED_RELEASE"; then
+            echo "ERROR: exact kernel version $EXPECTED_RELEASE is absent from $IMAGE" >&2
             exit 1
           fi
-          grep -Eq '^[[:space:]]*SUBLEVEL[[:space:]]*=[[:space:]]*188([[:space:]]|$)' kernel/common/Makefile
+          grep -Eq "^[[:space:]]*SUBLEVEL[[:space:]]*=[[:space:]]*${EXPECTED_SUBLEVEL}([[:space:]]|$)" kernel/common/Makefile
           : "${CONFIG_FILE:?generated .config path was not exported}"
           if [ ! -s "$CONFIG_FILE" ]; then
             echo "ERROR: generated .config is missing: $CONFIG_FILE" >&2
@@ -558,7 +592,11 @@ jobs:
             exit 1
           fi
           test -s kernel/stable-provenance/manifest.json
-          test -s kernel/stable-provenance/stable-upgrade.patch
+          if [ -n "${{ inputs.stable_commit }}" ]; then
+            test -s kernel/stable-provenance/stable-upgrade.patch
+          else
+            test -f kernel/stable-provenance/stable-upgrade.patch
+          fi
           test -s kernel/common/scripts/setlocalversion
           mkdir -p bfp-provenance
           cp -- "$CONFIG_FILE" bfp-provenance/.config

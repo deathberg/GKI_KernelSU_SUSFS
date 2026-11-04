@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -92,7 +93,7 @@ class StableUpgradeTests(unittest.TestCase):
         self.git("add", "Makefile", cwd=path)
         self.git("commit", "-qm", f"gki {sublevel}", cwd=path)
 
-    def run_upgrade(self, commit, base_repository=None):
+    def run_upgrade(self, commit, base_repository=None, extra_env=None):
         env = os.environ.copy()
         env.update({
             "GITHUB_WORKSPACE": str(self.root),
@@ -103,10 +104,39 @@ class StableUpgradeTests(unittest.TestCase):
             "BASE_REPOSITORY": str(self.base_repo) if base_repository is None else base_repository,
             "REQUIRED_SUBLEVEL": "188",
         })
+        env.update(extra_env or {})
         script = ROOT / ".github/actions/upgrade-stable/run.sh"
         self.assertTrue(script.is_file(), script)
         return subprocess.run(["bash", str(script)], cwd=self.root, env=env,
                               capture_output=True, text=True)
+
+    def test_transient_fetch_failure_is_retried(self):
+        fake_bin = self.root / "fake-bin"
+        fake_bin.mkdir()
+        attempts = self.root / "fetch-attempts"
+        wrapper = fake_bin / "git"
+        wrapper.write_text(
+            "#!/usr/bin/env bash\n"
+            "if [ \"$3\" = fetch ] && [[ \"$*\" == *\"$TRANSIENT_REPOSITORY\"* ]]; then\n"
+            "  count=0\n"
+            "  if [ -f \"$TRANSIENT_ATTEMPTS\" ]; then count=$(<\"$TRANSIENT_ATTEMPTS\"); fi\n"
+            "  count=$((count+1))\n"
+            "  printf '%s\\n' \"$count\" > \"$TRANSIENT_ATTEMPTS\"\n"
+            "  if [ \"$count\" -lt 3 ]; then echo 'simulated transient fetch failure' >&2; exit 128; fi\n"
+            "fi\n"
+            "exec \"$REAL_GIT\" \"$@\"\n", encoding="utf-8")
+        wrapper.chmod(0o755)
+        result = self.run_upgrade(self.stable_sha, extra_env={
+            "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"],
+            "REAL_GIT": shutil.which("git"),
+            "TRANSIENT_REPOSITORY": str(self.stable_repo),
+            "TRANSIENT_ATTEMPTS": str(attempts),
+            "FETCH_RETRY_DELAY_SECONDS": "0",
+        })
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("3", attempts.read_text().strip())
+        parents = self.git("show", "-s", "--format=%P", "HEAD", cwd=self.clone).stdout.split()
+        self.assertEqual(2, len(parents))
 
     def test_upgrade_merges_stable_and_records_provenance(self):
         result = self.run_upgrade(self.stable_sha)

@@ -34,8 +34,23 @@ fi
 git -C "$KERNEL_DIR" config user.name 'github-actions[bot]'
 git -C "$KERNEL_DIR" config user.email 'github-actions[bot]@users.noreply.github.com'
 
-git -C "$KERNEL_DIR" fetch --depth=256 "$STABLE_REPOSITORY" "$STABLE_COMMIT"
-git -C "$KERNEL_DIR" fetch --deepen=256 "$BASE_REPO" "$BASE_COMMIT"
+fetch_with_retry() {
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    if git -C "$KERNEL_DIR" fetch "$@"; then
+      return 0
+    fi
+    if [ "$attempt" -lt 5 ]; then
+      echo "Fetch attempt $attempt/5 failed; retrying" >&2
+      sleep "${FETCH_RETRY_DELAY_SECONDS:-5}"
+    fi
+  done
+  echo "ERROR: git fetch failed after 5 attempts: $*" >&2
+  return 1
+}
+
+fetch_with_retry --depth=256 "$STABLE_REPOSITORY" "$STABLE_COMMIT"
+fetch_with_retry --deepen=256 "$BASE_REPO" "$BASE_COMMIT"
 
 found=0
 for round in 1 2 3 4 5 6 7 8; do
@@ -44,8 +59,8 @@ for round in 1 2 3 4 5 6 7 8; do
     break
   fi
   echo "Deepening history for stable merge (round $round)"
-  git -C "$KERNEL_DIR" fetch --deepen=256 "$BASE_REPO" "$BASE_COMMIT"
-  git -C "$KERNEL_DIR" fetch --deepen=256 "$STABLE_REPOSITORY" "$STABLE_COMMIT"
+  fetch_with_retry --deepen=256 "$BASE_REPO" "$BASE_COMMIT"
+  fetch_with_retry --deepen=256 "$STABLE_REPOSITORY" "$STABLE_COMMIT"
 done
 if [ "$found" -ne 1 ]; then
   echo "ERROR: no merge base between GKI $BASE_COMMIT and stable $STABLE_COMMIT" >&2

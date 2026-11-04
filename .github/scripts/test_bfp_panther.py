@@ -58,7 +58,7 @@ class StableInputTests(unittest.TestCase):
 
 class StableUpgradeTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=ROOT / ".superpowers/sdd/2026-11-04-pixel7-bfp")
+        self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.base_repo = self.root / "base-remote"
         self.stable_repo = self.root / "stable-remote"
@@ -135,7 +135,7 @@ class StableUpgradeTests(unittest.TestCase):
 
 class EvidenceTests(unittest.TestCase):
     def run_branding(self, suffix):
-        with tempfile.TemporaryDirectory(dir=ROOT / ".superpowers/sdd/2026-11-04-pixel7-bfp") as temp:
+        with tempfile.TemporaryDirectory() as temp:
             scripts = Path(temp) / "scripts"
             scripts.mkdir()
             (scripts / "setlocalversion").write_text("#!/bin/sh\necho '-original'\n", encoding="utf-8")

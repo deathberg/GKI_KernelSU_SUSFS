@@ -31,3 +31,6 @@ jobs:
 
       - name: Validate Python syntax
         run: python3 .github/scripts/validate_python.py
+
+      - name: Test Pixel 7 stable source and build evidence
+        run: python3 -m unittest discover -s .github/scripts -p 'test_bfp_panther.py' -v

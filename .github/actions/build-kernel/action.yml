@@ -14,6 +14,11 @@ inputs:
     required: false
     type: boolean
     default: false
+  require_verified_config:
+    description: 'Require the final config to contain the Pixel 7 BFP settings'
+    required: false
+    type: boolean
+    default: false
 runs:
   using: composite
   steps:
@@ -122,6 +127,10 @@ runs:
           CONFIG_FILE="$(find bazel-bin/common /home/runner/out -maxdepth 4 -name .config -type f 2>/dev/null | head -n1 || true)"
         fi
         if [ -z "$CONFIG_FILE" ]; then
+          if [ "${{ inputs.require_verified_config }}" = "true" ]; then
+            echo "ERROR: could not locate the generated .config; required BFP settings cannot be verified." >&2
+            exit 1
+          fi
           if [ "$PAGE_SIZE" != "16k" ]; then
             # 4k builds are unchanged from before this feature; a missing .config
             # is a gap in the check, not a reason to fail a working build.
@@ -131,6 +140,8 @@ runs:
           echo "ERROR: could not locate the generated .config; page size cannot be verified." >&2
           exit 1
         fi
+        CONFIG_FILE="$(realpath "$CONFIG_FILE")"
+        echo "CONFIG_FILE=$CONFIG_FILE" >> "$GITHUB_ENV"
         echo "Verifying page size using $CONFIG_FILE"
         grep -E '^(# )?CONFIG_ARM64_(4K|16K|64K)_PAGES|^CONFIG_ARM64_PAGE_SHIFT' "$CONFIG_FILE" || true
 
@@ -179,6 +190,21 @@ runs:
           exit 1
         fi
         echo "Page size verified: ${PAGE_SIZE}"
+
+        if [ "${{ inputs.require_verified_config }}" = "true" ]; then
+          for required in \
+            CONFIG_ARM64_4K_PAGES=y \
+            CONFIG_MODVERSIONS=y \
+            CONFIG_NOMOUNT=y \
+            CONFIG_KSU=y \
+            CONFIG_KSU_SUSFS=y; do
+            if ! grep -qx "$required" "$CONFIG_FILE"; then
+              echo "ERROR: required setting '$required' missing from $CONFIG_FILE" >&2
+              exit 1
+            fi
+          done
+          echo "Required BFP config settings verified."
+        fi
 
     - name: 'Gather Build Artifacts'
       shell: bash

@@ -69,5 +69,8 @@ runs:
             sed -i '$d' scripts/setlocalversion && echo "echo \"-$ANDROID_PART-$BRAND\"" >> scripts/setlocalversion
           fi
         fi
+        if [ -n "${{ inputs.localversion_suffix }}" ]; then
+          sed -i '$d' scripts/setlocalversion && echo "echo \"-${{ inputs.localversion_suffix }}\"" >> scripts/setlocalversion
+        fi
         chmod +x scripts/setlocalversion
         tail -n 1 scripts/setlocalversion

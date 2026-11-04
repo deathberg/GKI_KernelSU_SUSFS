@@ -133,5 +133,69 @@ class StableUpgradeTests(unittest.TestCase):
         self.assertFalse((self.root / "kernel/stable-provenance/manifest.json").exists())
 
 
+class EvidenceTests(unittest.TestCase):
+    def run_branding(self, suffix):
+        with tempfile.TemporaryDirectory(dir=ROOT / ".superpowers/sdd/2026-11-04-pixel7-bfp") as temp:
+            scripts = Path(temp) / "scripts"
+            scripts.mkdir()
+            (scripts / "setlocalversion").write_text("#!/bin/sh\necho '-original'\n", encoding="utf-8")
+            text = action("apply-kernel-branding")["runs"]["steps"][0]["run"]
+            replacements = {
+                "${{ inputs.version }}": "android14-6.1",
+                "${{ inputs.sublevel }}": "188",
+                "${{ inputs.brand_name }}": "BFP",
+                "${{ inputs.keep_kmi }}": "false",
+                "${{ inputs.localversion_suffix }}": suffix,
+            }
+            for token, value in replacements.items():
+                text = text.replace(token, value)
+            result = subprocess.run(["bash", "-c", text], cwd=temp,
+                                    capture_output=True, text=True)
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            return (scripts / "setlocalversion").read_text()
+
+    def test_exact_localversion_suffix(self):
+        text = self.run_branding("Budapest")
+        self.assertIn('echo "-Budapest"', text)
+        self.assertNotIn('echo "-android14-BFP"', text)
+
+    def test_empty_localversion_suffix_preserves_legacy_branding(self):
+        text = self.run_branding("")
+        self.assertIn('echo "-android14-BFP"', text)
+        self.assertNotIn('echo "-Budapest"', text)
+
+    def test_stock_config_disabled_and_numeric_summary(self):
+        document = workflow("build.yml")
+        steps = document["jobs"]["build-gki"]["steps"]
+        stock = next(step for step in steps if step.get("uses") == "./.github/actions/stock-config")
+        self.assertIs(stock.get("if"), False)
+        summary = next(step for step in steps if step.get("name") == "Consolidated Build Summary")
+        self.assertEqual("${{ steps.extract.outputs.sublevel }}", summary["with"]["sublevel"])
+
+    def test_required_config_and_exact_image_version(self):
+        inputs = action("build-kernel")["inputs"]
+        self.assertIn("require_verified_config", inputs)
+        self.assertFalse(inputs["require_verified_config"]["default"])
+        text = (ROOT / ".github/actions/build-kernel/action.yml").read_text(encoding="utf-8")
+        for required in ("CONFIG_ARM64_4K_PAGES=y", "CONFIG_MODVERSIONS=y",
+                         "CONFIG_NOMOUNT=y", "CONFIG_KSU=y", "CONFIG_KSU_SUSFS=y"):
+            self.assertIn(required, text)
+        self.assertIn("require_verified_config", text)
+        build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        self.assertIn("require_verified_config: true", build)
+        self.assertIn("6.1.188-Budapest", build)
+        self.assertIn("strings", build)
+
+    def test_provenance_artifacts_and_validation(self):
+        build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        self.assertIn("bfp-provenance", build)
+        self.assertIn("Module.symvers", build)
+        self.assertIn("KMI_GENERATION", build)
+        self.assertIn("stable-provenance", build)
+        self.assertIn("scripts/setlocalversion", build)
+        validation = (ROOT / ".github/workflows/validate.yml").read_text(encoding="utf-8")
+        self.assertIn("unittest discover -s .github/scripts -p 'test_bfp_panther.py' -v", validation)
+
+
 if __name__ == "__main__":
     unittest.main()

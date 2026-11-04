@@ -179,6 +179,7 @@ jobs:
           required_sublevel: 188
 
       - name: Spoof /proc/config.gz With Stock Config
+        if: false
         uses: ./.github/actions/stock-config
         with:
           version: ${{ inputs.version }}
@@ -482,6 +483,7 @@ jobs:
           sublevel: ${{ steps.extract.outputs.sublevel }}
           brand_name: ${{ inputs.brand_name }}
           keep_kmi: ${{ inputs.keep_kmi }}
+          localversion_suffix: Budapest
 
       - name: Remove Protected Exports
         uses: ./.github/actions/remove-protected-exports
@@ -523,6 +525,55 @@ jobs:
         with:
           version: ${{ inputs.version }}
           page_size: ${{ inputs.page_size }}
+          require_verified_config: true
+
+      - name: Verify image and collect BFP provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE="${GITHUB_WORKSPACE}/AnyKernel3/Image"
+          if [ ! -s "$IMAGE" ]; then
+            echo "ERROR: built Image is missing or empty: $IMAGE" >&2
+            exit 1
+          fi
+          if ! strings "$IMAGE" | grep -F '6.1.188-Budapest'; then
+            echo "ERROR: exact kernel version 6.1.188-Budapest is absent from $IMAGE" >&2
+            exit 1
+          fi
+          grep -Eq '^[[:space:]]*SUBLEVEL[[:space:]]*=[[:space:]]*188([[:space:]]|$)' kernel/common/Makefile
+          : "${CONFIG_FILE:?generated .config path was not exported}"
+          if [ ! -s "$CONFIG_FILE" ]; then
+            echo "ERROR: generated .config is missing: $CONFIG_FILE" >&2
+            exit 1
+          fi
+          KMI_GENERATION="$(sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?KMI_GENERATION[[:space:]]*[:?+]?=[[:space:]]*([^[:space:]#]+).*$/\2/p' kernel/common/build.config.common kernel/common/build.config.constants 2>/dev/null | head -n1)"
+          if [[ ! "$KMI_GENERATION" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: numeric KMI_GENERATION was not found in the source build config" >&2
+            exit 1
+          fi
+          SYMVERS_FILE="$(find -H kernel/bazel-bin/common /home/runner/out -maxdepth 7 -type f -name Module.symvers -print -quit 2>/dev/null)"
+          if [ -z "$SYMVERS_FILE" ] || [ ! -s "$SYMVERS_FILE" ]; then
+            echo "ERROR: non-empty Module.symvers was not produced by the build" >&2
+            exit 1
+          fi
+          test -s kernel/stable-provenance/manifest.json
+          test -s kernel/stable-provenance/stable-upgrade.patch
+          test -s kernel/common/scripts/setlocalversion
+          mkdir -p bfp-provenance
+          cp -- "$CONFIG_FILE" bfp-provenance/.config
+          cp -- "$SYMVERS_FILE" bfp-provenance/Module.symvers
+          printf 'KMI_GENERATION=%s\n' "$KMI_GENERATION" > bfp-provenance/KMI_GENERATION
+          cp -a kernel/stable-provenance bfp-provenance/stable-provenance
+          cp -- kernel/common/scripts/setlocalversion bfp-provenance/setlocalversion
+
+      - name: Upload BFP provenance
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.extract.outputs.file_name }}-bfp-provenance
+          path: ${{ github.workspace }}/bfp-provenance/**
+          if-no-files-found: error
+          compression-level: 9
 
       - name: Consolidated Build Summary
         id: build-summary
@@ -532,7 +583,7 @@ jobs:
           job_status: ${{ job.status }}
           file_name: ${{ steps.extract.outputs.file_name }}
           kernel_version: ${{ inputs.kernel_version }}
-          sublevel: ${{ inputs.sublevel }}
+          sublevel: ${{ steps.extract.outputs.sublevel }}
           android_version: ${{ inputs.android_version }}
           os_patch_level: ${{ inputs.os_patch_level }}
           variant: ${{ inputs.variant }}

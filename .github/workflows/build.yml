@@ -554,7 +554,7 @@ jobs:
         with:
           version: ${{ inputs.version }}
           page_size: ${{ inputs.page_size }}
-          require_verified_config: true
+          require_verified_config: ${{ inputs.root_flavor != 'none' }}
 
       - name: Verify image and collect BFP provenance
         shell: bash
@@ -611,6 +611,7 @@ jobs:
         with:
           name: ${{ steps.extract.outputs.file_name }}-bfp-provenance
           path: ${{ github.workspace }}/bfp-provenance/**
+          include-hidden-files: true
           if-no-files-found: error
           compression-level: 9
 

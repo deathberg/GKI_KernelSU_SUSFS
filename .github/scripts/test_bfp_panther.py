@@ -257,9 +257,17 @@ class EvidenceTests(unittest.TestCase):
             self.assertIn(required, text)
         self.assertIn("require_verified_config", text)
         build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
-        self.assertIn("require_verified_config: true", build)
         self.assertIn("6.1.182-Budapest", build)
         self.assertIn("strings", build)
+        document = workflow("build.yml")
+        step = next(step for step in document["jobs"]["build-gki"]["steps"]
+                    if step.get("uses") == "./.github/actions/build-kernel")
+        self.assertEqual("${{ inputs.root_flavor != 'none' }}", step["with"]["require_verified_config"])
+
+    def test_provenance_upload_includes_hidden_config(self):
+        steps = workflow("build.yml")["jobs"]["build-gki"]["steps"]
+        upload = next(step for step in steps if step.get("name") == "Upload BFP provenance")
+        self.assertIs(upload["with"].get("include-hidden-files"), True)
 
     def test_supported_gki_baseline_provenance(self):
         document = workflow("build.yml")

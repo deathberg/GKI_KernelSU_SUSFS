@@ -14,6 +14,10 @@ inputs:
     description: 'Optional base repository override for local tests'
     required: false
     default: ''
+  base_ref:
+    description: 'Optional exact GKI branch used for the history fetch (HEAD must still match)'
+    required: false
+    default: ''
   required_sublevel:
     description: 'Required numeric SUBLEVEL in the resulting Makefile'
     required: false
@@ -29,5 +33,6 @@ runs:
         STABLE_COMMIT: ${{ inputs.stable_commit }}
         STABLE_REPOSITORY: ${{ inputs.stable_repository }}
         BASE_REPOSITORY: ${{ inputs.base_repository }}
+        BASE_REF: ${{ inputs.base_ref }}
         REQUIRED_SUBLEVEL: ${{ inputs.required_sublevel }}
       run: bash "${{ github.action_path }}/run.sh"

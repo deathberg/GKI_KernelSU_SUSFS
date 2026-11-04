@@ -38,6 +38,16 @@ class StableInputTests(unittest.TestCase):
             text = (ROOT / ".github/workflows" / name).read_text(encoding="utf-8")
             self.assertIn("stable_commit: ${{ inputs.stable_commit }}", text)
 
+    def test_base_ref_mapping(self):
+        inputs = action("upgrade-stable")["inputs"]
+        self.assertIn("base_ref", inputs)
+        self.assertEqual("", inputs["base_ref"]["default"])
+        self.assertFalse(inputs["base_ref"]["required"])
+        text = (ROOT / ".github/actions/upgrade-stable/action.yml").read_text(encoding="utf-8")
+        self.assertIn("BASE_REF: ${{ inputs.base_ref }}", text)
+        build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        self.assertIn("base_ref: ${{ inputs.version }}-${{ inputs.os_patch_level }}", build)
+
     def test_localversion_suffix_input(self):
         inputs = action("apply-kernel-branding")["inputs"]
         self.assertIn("localversion_suffix", inputs)
@@ -135,6 +145,35 @@ class StableUpgradeTests(unittest.TestCase):
         })
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual("3", attempts.read_text().strip())
+        parents = self.git("show", "-s", "--format=%P", "HEAD", cwd=self.clone).stdout.split()
+        self.assertEqual(2, len(parents))
+
+    def test_bounded_depth_and_base_ref_fetch(self):
+        base_ref = self.git("symbolic-ref", "--short", "HEAD", cwd=self.base_repo).stdout.strip()
+        fake_bin = self.root / "fake-bin"
+        fake_bin.mkdir()
+        calls = self.root / "fetch-calls"
+        wrapper = fake_bin / "git"
+        wrapper.write_text(
+            "#!/usr/bin/env bash\n"
+            "if [ \"$3\" = fetch ]; then\n"
+            "  if [[ \"$*\" == *--deepen* ]]; then echo 'unsupported deepen operation' >&2; exit 99; fi\n"
+            "  printf '%s\\n' \"$*\" >> \"$FETCH_CALLS\"\n"
+            "fi\n"
+            "exec \"$REAL_GIT\" \"$@\"\n", encoding="utf-8")
+        wrapper.chmod(0o755)
+        result = self.run_upgrade(self.stable_sha, extra_env={
+            "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"],
+            "REAL_GIT": shutil.which("git"),
+            "BASE_REF": base_ref,
+            "FETCH_CALLS": str(calls),
+            "FETCH_RETRY_DELAY_SECONDS": "0",
+        })
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        text = calls.read_text()
+        self.assertIn(f"--depth=256 {self.base_repo} {base_ref}", text)
+        self.assertIn(f"--depth=2560 {self.stable_repo} {self.stable_sha}", text)
+        self.assertNotIn("--deepen", text)
         parents = self.git("show", "-s", "--format=%P", "HEAD", cwd=self.clone).stdout.split()
         self.assertEqual(2, len(parents))
 

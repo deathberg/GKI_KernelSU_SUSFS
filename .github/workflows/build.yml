@@ -176,6 +176,7 @@ jobs:
         uses: ./.github/actions/upgrade-stable
         with:
           stable_commit: ${{ inputs.stable_commit }}
+          base_ref: ${{ inputs.version }}-${{ inputs.os_patch_level }}
           required_sublevel: 188
 
       - name: Spoof /proc/config.gz With Stock Config

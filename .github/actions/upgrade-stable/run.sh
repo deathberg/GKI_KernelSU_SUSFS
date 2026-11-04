@@ -4,6 +4,7 @@ set -euo pipefail
 : "${STABLE_COMMIT:=}"
 : "${STABLE_REPOSITORY:=https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git}"
 : "${BASE_REPOSITORY:=}"
+: "${BASE_REF:=}"
 : "${REQUIRED_SUBLEVEL:=188}"
 : "${GITHUB_ENV:=$GITHUB_WORKSPACE/kernel/stable-provenance/github-env}"
 : "${GITHUB_OUTPUT:=$GITHUB_WORKSPACE/kernel/stable-provenance/github-output}"
@@ -49,21 +50,15 @@ fetch_with_retry() {
   return 1
 }
 
-fetch_with_retry --depth=256 "$STABLE_REPOSITORY" "$STABLE_COMMIT"
-fetch_with_retry --deepen=256 "$BASE_REPO" "$BASE_COMMIT"
+fetch_with_retry --depth=256 "$BASE_REPO" "${BASE_REF:-$BASE_COMMIT}"
+if [ "$(git -C "$KERNEL_DIR" rev-parse FETCH_HEAD)" != "$BASE_COMMIT" ]; then
+  echo "ERROR: base ref moved between repository sync and history fetch" >&2
+  exit 1
+fi
+fetch_with_retry --depth=2560 "$STABLE_REPOSITORY" "$STABLE_COMMIT"
 
-found=0
-for round in 1 2 3 4 5 6 7 8; do
-  if git -C "$KERNEL_DIR" merge-base "$BASE_COMMIT" "$STABLE_COMMIT" >/dev/null 2>&1; then
-    found=1
-    break
-  fi
-  echo "Deepening history for stable merge (round $round)"
-  fetch_with_retry --deepen=256 "$BASE_REPO" "$BASE_COMMIT"
-  fetch_with_retry --deepen=256 "$STABLE_REPOSITORY" "$STABLE_COMMIT"
-done
-if [ "$found" -ne 1 ]; then
-  echo "ERROR: no merge base between GKI $BASE_COMMIT and stable $STABLE_COMMIT" >&2
+if ! git -C "$KERNEL_DIR" merge-base "$BASE_COMMIT" "$STABLE_COMMIT" >/dev/null 2>&1; then
+  echo "ERROR: no merge base between GKI $BASE_COMMIT and stable $STABLE_COMMIT with bounded depth 256/2560" >&2
   exit 1
 fi
 

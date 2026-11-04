@@ -4,3 +4,4 @@ kernel-manifests/
 kernels/
 bbr/
 __pycache__/
+.worktrees/

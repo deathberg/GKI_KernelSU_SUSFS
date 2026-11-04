@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -51,6 +54,83 @@ class StableInputTests(unittest.TestCase):
         config = json.loads((ROOT / ".github/config/android14-6.1.json").read_text(encoding="utf-8"))
         selected = [row for row in config["include"] if row.get("disabled") is not True and row["date"] == dispatch["os_patch_level"]]
         self.assertEqual(1, len(selected))
+
+
+class StableUpgradeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(dir=ROOT / ".superpowers/sdd/2026-11-04-pixel7-bfp")
+        self.root = Path(self.temp.name)
+        self.base_repo = self.root / "base-remote"
+        self.stable_repo = self.root / "stable-remote"
+        self.clone = self.root / "kernel/common"
+        self.clone.parent.mkdir(parents=True)
+        self.init_repo(self.base_repo, 182)
+        self.git("clone", "-q", str(self.base_repo), str(self.stable_repo))
+        (self.stable_repo / "Makefile").write_text("VERSION = 6\nPATCHLEVEL = 1\nSUBLEVEL = 188\n", encoding="utf-8")
+        self.git("config", "user.name", "Kimi Code", cwd=self.stable_repo)
+        self.git("config", "user.email", "kimi-code@localhost", cwd=self.stable_repo)
+        self.git("add", "Makefile", cwd=self.stable_repo)
+        self.git("commit", "-qm", "stable 188", cwd=self.stable_repo)
+        self.stable_sha = self.git("rev-parse", "HEAD", cwd=self.stable_repo).stdout.strip()
+        self.git("clone", "-q", "--depth", "1", "file://" + str(self.base_repo), str(self.clone))
+        self.git("config", "user.name", "Kimi Code", cwd=self.clone)
+        self.git("config", "user.email", "kimi-code@localhost", cwd=self.clone)
+        self.base_sha = self.git("rev-parse", "HEAD", cwd=self.clone).stdout.strip()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def git(self, *args, cwd=ROOT):
+        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+
+    def init_repo(self, path, sublevel):
+        path.mkdir(parents=True)
+        self.git("init", "-q", cwd=path)
+        (path / "Makefile").write_text(f"VERSION = 6\nPATCHLEVEL = 1\nSUBLEVEL = {sublevel}\n", encoding="utf-8")
+        self.git("config", "user.name", "Kimi Code", cwd=path)
+        self.git("config", "user.email", "kimi-code@localhost", cwd=path)
+        self.git("add", "Makefile", cwd=path)
+        self.git("commit", "-qm", f"gki {sublevel}", cwd=path)
+
+    def run_upgrade(self, commit):
+        env = os.environ.copy()
+        env.update({
+            "GITHUB_WORKSPACE": str(self.root),
+            "GITHUB_ENV": str(self.root / "github-env"),
+            "GITHUB_OUTPUT": str(self.root / "github-output"),
+            "STABLE_COMMIT": commit,
+            "STABLE_REPOSITORY": str(self.stable_repo),
+            "BASE_REPOSITORY": str(self.base_repo),
+            "REQUIRED_SUBLEVEL": "188",
+        })
+        script = ROOT / ".github/actions/upgrade-stable/run.sh"
+        self.assertTrue(script.is_file(), script)
+        return subprocess.run(["bash", str(script)], cwd=self.root, env=env,
+                              capture_output=True, text=True)
+
+    def test_upgrade_merges_stable_and_records_provenance(self):
+        result = self.run_upgrade(self.stable_sha)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        merged = self.git("rev-parse", "HEAD", cwd=self.clone).stdout.strip()
+        parents = self.git("show", "-s", "--format=%P", "HEAD", cwd=self.clone).stdout.split()
+        self.assertEqual(2, len(parents))
+        self.assertIn(f"KERNEL_SOURCE_COMMIT={merged}", (self.root / "github-env").read_text())
+        manifest = json.loads((self.root / "kernel/stable-provenance/manifest.json").read_text())
+        self.assertEqual(self.base_sha, manifest["gki_base_commit"])
+        self.assertEqual(self.stable_sha, manifest["stable_commit"])
+        self.assertEqual(merged, manifest["merged_head"])
+        self.assertEqual(str(self.stable_repo), manifest["stable_repository"])
+        self.assertGreater((self.root / "kernel/stable-provenance/stable-upgrade.patch").stat().st_size, 0)
+        self.assertIn("SUBLEVEL = 188", (self.clone / "Makefile").read_text())
+        build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        self.assertLess(build.index("actions/download-kernel"), build.index("actions/upgrade-stable"))
+        self.assertLess(build.index("actions/upgrade-stable"), build.index("actions/stock-config"))
+
+    def test_empty_stable_commit_is_noop(self):
+        result = self.run_upgrade("")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual(self.base_sha, self.git("rev-parse", "HEAD", cwd=self.clone).stdout.strip())
+        self.assertFalse((self.root / "kernel/stable-provenance/manifest.json").exists())
 
 
 if __name__ == "__main__":

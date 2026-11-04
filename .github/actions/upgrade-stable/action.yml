@@ -1,0 +1,33 @@
+name: 'Upgrade GKI to immutable stable commit'
+description: 'Merge an immutable Linux stable commit into the GKI tree and preserve provenance'
+
+inputs:
+  stable_commit:
+    description: 'Full stable commit SHA (empty = no upgrade)'
+    required: false
+    default: ''
+  stable_repository:
+    description: 'Stable kernel repository (local path is allowed for tests)'
+    required: false
+    default: 'https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git'
+  base_repository:
+    description: 'Optional base repository override for local tests'
+    required: false
+    default: ''
+  required_sublevel:
+    description: 'Required numeric SUBLEVEL in the resulting Makefile'
+    required: false
+    default: '188'
+
+runs:
+  using: composite
+  steps:
+    - name: Merge stable source
+      shell: bash
+      working-directory: ${{ github.workspace }}/kernel
+      env:
+        STABLE_COMMIT: ${{ inputs.stable_commit }}
+        STABLE_REPOSITORY: ${{ inputs.stable_repository }}
+        BASE_REPOSITORY: ${{ inputs.base_repository }}
+        REQUIRED_SUBLEVEL: ${{ inputs.required_sublevel }}
+      run: bash "${{ github.action_path }}/run.sh"

@@ -349,6 +349,20 @@ class EvidenceTests(unittest.TestCase):
         upgrade = next(step for step in steps if step.get("uses") == "./.github/actions/upgrade-stable")
         self.assertIn("${{ inputs.stable_commit == '' && '145' || '188' }}", upgrade["with"]["required_sublevel"])
 
+    def test_fanotify_can_match_vendor_configuration(self):
+        misc = action("misc")
+        self.assertIn("fanotify", misc["inputs"])
+        self.assertEqual("true", misc["inputs"]["fanotify"]["default"])
+        text = (ROOT / ".github/actions/misc/action.yml").read_text(encoding="utf-8")
+        expression = "${{ inputs.fanotify == 'true' && 'y' || 'n' }}"
+        self.assertIn("CONFIG_FANOTIFY=" + expression, text)
+        self.assertIn("CONFIG_FANOTIFY_ACCESS_PERMISSIONS=" + expression, text)
+        steps = workflow("build.yml")["jobs"]["build-gki"]["steps"]
+        step = next(step for step in steps if step.get("uses") == "./.github/actions/misc")
+        self.assertEqual("false", step["with"]["fanotify"])
+        verify = next(step for step in steps if step.get("name") == "Verify image and collect BFP provenance")["run"]
+        self.assertIn("^CONFIG_FANOTIFY=y", verify)
+
     def test_provenance_artifacts_and_validation(self):
         build = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
         self.assertIn("bfp-provenance", build)

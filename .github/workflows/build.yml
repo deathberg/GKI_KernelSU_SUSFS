@@ -490,6 +490,7 @@ jobs:
           android_version: ${{ inputs.android_version }}
           sublevel: ${{ steps.extract.outputs.sublevel }}
           variant: ${{ inputs.variant }}
+          fanotify: 'false'
 
       - name: Enable BPF Stack (BTF + eBPF + FUSE-BPF)
         if: contains(inputs.feature_set, 'BPF')
@@ -589,6 +590,10 @@ jobs:
           : "${CONFIG_FILE:?generated .config path was not exported}"
           if [ ! -s "$CONFIG_FILE" ]; then
             echo "ERROR: generated .config is missing: $CONFIG_FILE" >&2
+            exit 1
+          fi
+          if grep -q '^CONFIG_FANOTIFY=y' "$CONFIG_FILE"; then
+            echo "ERROR: FANOTIFY does not match the Pixel 7 vendor ABI baseline" >&2
             exit 1
           fi
           KMI_GENERATION="$(sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?KMI_GENERATION[[:space:]]*[:?+]?=[[:space:]]*([^[:space:]#]+).*$/\2/p' kernel/common/build.config.common kernel/common/build.config.constants 2>/dev/null | head -n1)"

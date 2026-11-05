@@ -16,6 +16,10 @@ inputs:
   variant:
     description: 'Build variant (Normal, Bypass, Wild, boot-time)'
     required: true
+  fanotify:
+    description: 'Enable FANOTIFY and FANOTIFY_ACCESS_PERMISSIONS'
+    required: false
+    default: 'true'
 
 runs:
   using: "composite"
@@ -29,6 +33,6 @@ runs:
           CONFIG_TMPFS_POSIX_ACL=y
           CONFIG_KALLSYMS=y
           CONFIG_KALLSYMS_ALL=y
-          CONFIG_FANOTIFY=y
-          CONFIG_FANOTIFY_ACCESS_PERMISSIONS=y
+          CONFIG_FANOTIFY=${{ inputs.fanotify == 'true' && 'y' || 'n' }}
+          CONFIG_FANOTIFY_ACCESS_PERMISSIONS=${{ inputs.fanotify == 'true' && 'y' || 'n' }}
           

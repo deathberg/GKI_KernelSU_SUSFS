@@ -314,6 +314,20 @@ class EvidenceTests(unittest.TestCase):
         upload = next(step for step in steps if step.get("name") == "Upload BFP provenance")
         self.assertIs(upload["with"].get("include-hidden-files"), True)
 
+    def test_sysvipc_kabi_is_unconditional_and_pinned(self):
+        path = ROOT / ".github/actions/sysvipc-kabi/action.yml"
+        self.assertTrue(path.is_file(), "missing unconditional SYSVIPC kABI action")
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("patch -p1", text)
+        self.assertIn("ANDROID_KABI_USE(6, struct sysv_sem sysvsem)", text)
+        self.assertIn("ANDROID_KABI_REPLACE(ANDROID_KABI_RESERVE(7); ANDROID_KABI_RESERVE(8), struct sysv_shm sysvshm)", text)
+        patch = (ROOT / ".github/actions/sysvipc-kabi/001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch").read_text(encoding="utf-8")
+        self.assertIn("769a5cfdc17b98d8e0bd491d45f5651180e42196", patch)
+        steps = workflow("build.yml")["jobs"]["build-gki"]["steps"]
+        step = next(step for step in steps if step.get("uses") == "./.github/actions/sysvipc-kabi")
+        self.assertEqual("inputs.version == 'android14-6.1'", step.get("if"))
+        self.assertNotIn("DS", step.get("if", ""))
+
     def test_supported_gki_baseline_provenance(self):
         document = workflow("build.yml")
         steps = document["jobs"]["build-gki"]["steps"]

@@ -452,6 +452,10 @@ jobs:
           os_patch_level: ${{ inputs.os_patch_level }}
           droidspaces_commit: ${{ inputs.droidspaces_commit }}
 
+      - name: Apply SYSVIPC kABI compatibility
+        if: inputs.version == 'android14-6.1'
+        uses: ./.github/actions/sysvipc-kabi
+
       - name: Apply NTSync Patches
         if: contains(inputs.feature_set, 'NTSync')
         uses: ./.github/actions/ntsync

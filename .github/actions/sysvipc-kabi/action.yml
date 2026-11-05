@@ -1,0 +1,19 @@
+name: 'Apply SYSVIPC kABI compatibility'
+description: 'Preserve task_struct layout and modversions CRCs whenever SYSVIPC is enabled'
+
+runs:
+  using: composite
+  steps:
+    - name: Apply SYSVIPC kABI patch
+      shell: bash
+      working-directory: ${{ github.workspace }}/kernel/common
+      run: |
+        set -euo pipefail
+        PATCH="${{ github.action_path }}/001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch"
+        test -f "$PATCH"
+        test -f include/linux/sched.h
+        if ! grep -q 'ANDROID_KABI_USE(6, struct sysv_sem sysvsem)' include/linux/sched.h; then
+          patch -p1 < "$PATCH"
+        fi
+        grep -q 'ANDROID_KABI_USE(6, struct sysv_sem sysvsem)' include/linux/sched.h
+        grep -q '_ANDROID_KABI_REPLACE(ANDROID_KABI_RESERVE(7); ANDROID_KABI_RESERVE(8), struct sysv_shm sysvshm)' include/linux/sched.h
